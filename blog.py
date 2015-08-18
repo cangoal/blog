@@ -11,11 +11,13 @@ from string import letters
 from google.appengine.ext import db
 from google.appengine.api import memcache
 
+
+# ******************* configs & helper methods & base handler **************************
+
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
 jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir), autoescape = True)
 
 # DEBUG = os.environ['SERVER_SOFEWARE'].startswith('Developmemt')
-
 SECRET = "thisisasecret"
 art_key = db.Key.from_path('ASCIIChan', 'arts')
 
@@ -47,6 +49,7 @@ def valid_pw(name, password, h):
 def users_key(group = 'default'):
 	return db.Key.from_path('users', group)
 
+# defind user model
 class User(db.Model):
 	name = db.StringProperty(required = True)
 	pw_hash = db.StringProperty(required = True)
@@ -75,6 +78,7 @@ class User(db.Model):
 		if u and valid_pw(name, pw, u.pw_hash):
 			return u
 
+# base handler
 class BaseHandler(webapp2.RequestHandler):
 	def write(self, *a, **kw):
 		self.response.out.write(*a, **kw)
@@ -104,6 +108,9 @@ class BaseHandler(webapp2.RequestHandler):
 		uid = self.read_sercure_cookie('user_id')
 		self.user = uid and User.by_id(int(uid))
 
+
+# ******************* security and cookies stuff **************************
+
 class MainPage(BaseHandler):
 	def get(self):
 		self.response.headers['Content-Type'] = 'text/plain'
@@ -123,36 +130,18 @@ class MainPage(BaseHandler):
 			self.write("You've been here %d times!" % visits)
 
 
-GMAPS_URL = "http://maps.googleapis.com/maps/api/staticmap?size=380x263&sensor=false&"
-def gmaps_img(points):
-	makers ='&'.join("markers=%s,%s" % (p.lat, p.lon) for p in points)
-	return GMAPS_URL + makers
 
-IP_URL = "http://api.hostip.info/?ip="
-def get_coords(ip):
-	ip='23.24.209.141'
-	url = IP_URL + ip
-	content = None
-	try:
-		content = rullib2.urlopen(url).read()
-	except:
-		# return
-		logging.debug("Fail to get GeoPt!")
-	if content:
-		d = minidom.parseString(content)
-		coords = d.getElmenetsByTagName("gml:coordinates")
-		if coords and coords[0].childNodes[0].nodeValue:
-			lon, lat = coords[0].childNodes[0].nodeValue.split(',')
-			return db.GeoPt(lat, lon)
-	return db.GeoPt('29.6516', '-82.3248')
 
+# ******************* ASCIIChan stuff **************************
+
+# art modle
 class Art(db.Model):
 	title = db.StringProperty(required = True)
 	art = db.TextProperty(required = True)
 	created = db.DateTimeProperty(auto_now_add = True)
 	coords = db.GeoPtProperty()
 
-
+# retrieve top 10 ASCII arts
 def top_arts(update = False):
 	key = 'top'
 	arts = memcache.get(key)
@@ -168,6 +157,8 @@ def top_arts(update = False):
 		memcache.set(key, arts)
 	return arts
 
+
+# art page
 class ArtPage(BaseHandler):
 	def render_front(self, title="", art="", error=""):
 		arts = top_arts()
@@ -200,6 +191,35 @@ class ArtPage(BaseHandler):
 			error = "we need both a title and some artwork!"
 			self.render_front(title, art, error)
 
+# retrive users' geo locations based on ip info
+GMAPS_URL = "http://maps.googleapis.com/maps/api/staticmap?size=380x263&sensor=false&"
+def gmaps_img(points):
+	makers ='&'.join("markers=%s,%s" % (p.lat, p.lon) for p in points)
+	return GMAPS_URL + makers
+
+# looks like this api does not working
+IP_URL = "http://api.hostip.info/?ip="
+def get_coords(ip):
+	ip='23.24.209.141'
+	url = IP_URL + ip
+	content = None
+	try:
+		content = rullib2.urlopen(url).read()
+	except:
+		# return
+		logging.debug("Fail to get GeoPt!")
+	if content:
+		d = minidom.parseString(content)
+		coords = d.getElmenetsByTagName("gml:coordinates")
+		if coords and coords[0].childNodes[0].nodeValue:
+			lon, lat = coords[0].childNodes[0].nodeValue.split(',')
+			return db.GeoPt(lat, lon)
+			# hard copied some values cause hostip api is not working
+	return db.GeoPt('29.6516', '-82.3248')
+
+# ******************* rot13 stuff **************************
+
+# rot13 handler
 class Rot13(BaseHandler):
 	def get(self):
 		self.render('rot13-form.html')
@@ -212,7 +232,9 @@ class Rot13(BaseHandler):
 		self.render('rot13-form.html', text = rot13)
 	
 
+# ******************* unit2 base sign up form stuff **************************
 
+# sign up base hanlder, blog sign up handler and unit 2 sign up handler inherite from this handler
 class Signup(BaseHandler):
 	def get(self):
 		self.render('signup-form.html')
@@ -247,10 +269,12 @@ class Signup(BaseHandler):
 	def done(self, *a, **kw):
 		raise NotImplementedError
 
+# unit2 sign up handler
 class Unit2Signup(Signup):
 	def done(self):
 		self.redirect('/welcome?username=' + username)
 
+# regex validation for sign up form page
 USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
 def valid_username(username):
 	return username and USER_RE.match(username)
@@ -264,7 +288,7 @@ def valid_email(email):
 	return not email or EMAIL_RE.match(email)
 
 
-
+# welcome page
 class Welcome(BaseHandler):
 	def get(self):
 		if self.user:
@@ -273,11 +297,12 @@ class Welcome(BaseHandler):
 			self.redirect('/signup')
 
 
-# blog stuff
+# ******************* blog stuff **************************
 
 def blog_key(name = 'default'):
 	return db.Key.from_path('blogs', name)
 
+# Post model defined
 class Post(db.Model):
 	subject = db.StringProperty(required = True)
 	content = db.TextProperty(required = True)
@@ -288,6 +313,8 @@ class Post(db.Model):
 		self._render_text = self.content.replace('\n', '<br>')
 		return render_str("post.html", p = self)
 
+
+# blog main page
 class BlogFront(BaseHandler):
 	def get(self):
 		# GqlQuery 
@@ -296,6 +323,7 @@ class BlogFront(BaseHandler):
 		self.render('blog-front.html', posts = posts)
 
 
+# view post detail
 class PostPage(BaseHandler):
 	def get(self, post_id):
 		key = db.Key.from_path('Post', int(post_id), parent=blog_key())
@@ -306,6 +334,8 @@ class PostPage(BaseHandler):
 			return
 		self.render("permalink.html", post = post)
 
+
+# create new post
 class NewPost(BaseHandler):
 	def get(self):
 		self.render("newpost.html")
@@ -322,6 +352,8 @@ class NewPost(BaseHandler):
 			error = "subject and content, please!"
 			self.render("newpost.html", subject=subject, content=content, error=error)
 
+
+# user sign up 
 class Register(Signup):
 	def done(self):
 		u = User.by_name(self.username)
@@ -335,6 +367,7 @@ class Register(Signup):
 			self.login(u)
 			self.redirect('/blog')
 
+# user log in 
 class Login(BaseHandler):
 	def get(self):
 		self.render('login-form.html')
@@ -351,11 +384,15 @@ class Login(BaseHandler):
 			msg = 'Invalid login'
 			self.render('login-form.html', error = msg)
 
+
+# user log out
 class Logout(BaseHandler):
 	def get(self):
 		self.logout()
 		self.redirect('/signup')
 
+
+# route config
 app = webapp2.WSGIApplication([('/', MainPage),
 							   ('/art', ArtPage),
 							   ('/rot13', Rot13),
